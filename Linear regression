@@ -1,0 +1,307 @@
+"""Import required libraries"""
+
+%matplotlib inline
+import numpy as np
+import tensorflow.compat.v1 as tf
+tf.disable_eager_execution()
+from sklearn import datasets as ds
+import matplotlib.pyplot as plt
+
+"""Import dataset"""
+boston = ds.load_boston()
+
+x_raw = boston.data[:,np.argwhere(boston.feature_names == 'RM')[0,0]]
+y_raw = boston.target
+
+
+"""Prepare and split the data"""
+total_count = x_raw.shape[0]
+
+split = int(total_count * 0.6)
+
+# Shuffle the data to avoid any ordering bias..
+np.random.seed(0)
+shuffle = np.random.permutation(total_count)
+
+x = x_raw[shuffle]
+y = y_raw[shuffle]
+
+x_train_unnormalised = x[:split]
+y_train_unnormalised = y[:split]
+
+x_test_unnormalised = x[split:]
+y_test_unnormalised = y[split:]
+
+print('Training set size:', x_train_unnormalised.shape[0])
+print('Test set size:', x_test_unnormalised.shape[0])
+
+
+"""Define a visulisation function"""
+def plot_data(x, y):
+    plt.figure(figsize=[10,8])
+    plt.plot(x, y, 'b+')
+    plt.grid(True)
+    plt.xlabel('Average number rooms per dwelling')
+    plt.ylabel('Mean value of home')
+
+plot_data(x_train_unnormalised, y_train_unnormalised)
+plt.title('Plot of the Training Data')
+
+
+"""Normalising function and checks to ensure the data is normalised"""
+def normalise_data(x_unnormalised):
+    b = x_unnormalised.mean(axis=0)
+    a = x_unnormalised.std(axis=0)
+    x_normalised = (x_unnormalised - b) / a
+    
+    
+    return x_normalised, a, b
+
+def unnormalise_data(x_normalised, a, b):
+    x_unnormalised = a * x_normalised + b
+    
+    return x_unnormalised
+
+try:
+    x_train, x_norm_a, x_norm_b = normalise_data(x_train_unnormalised)
+    y_train, y_norm_a, y_norm_b = normalise_data(y_train_unnormalised)
+
+    x_test, _, _ = normalise_data(x_test_unnormalised)
+    y_test, _, _ = normalise_data(y_test_unnormalised)
+except Exception as err:
+    print('Error during normalisation functions:', err)
+
+def checking_function(normalise_data, unnormalise_data, data_to_check):
+    passes_check = False
+    
+    est_normalised_data, est_a, est_b = normalise_data(data_to_check)
+    est_unnormalised_data = unnormalise_data(est_normalised_data, est_a, est_b)
+    
+    passes_check = np.all(np.isclose(est_unnormalised_data, data_to_check), axis=0)
+    
+     
+    
+    return passes_check
+
+try:
+    if (checking_function(normalise_data, unnormalise_data, x_train_unnormalised) == True) and \
+       (checking_function(normalise_data, unnormalise_data, y_train_unnormalised) == True):
+        print('Passes checking function :)')
+    else:
+        print('Failed to pass the checking function :(')
+except Exception as err:
+    print('Error during checking function:', err)
+
+# Plot the data to make sure they are normalised..
+try:
+    plot_data(x_train, y_train)
+    plt.title('Plot of the (Normalised) Training Data')
+except Exception as err:
+    print('Error during ploting functions:', err)
+    
+
+"""Define a function to calculate least squares regression and checking function"""
+def least_squares_error(x, y, w, c):
+  
+    y_estimates = w*x + c
+    a = np.square(y - y_estimates)
+    squared_error = np.sum(a)
+    
+    return squared_error
+
+try:
+    print('Squared error for w = 1.5, c = 0.5 is ', 
+          least_squares_error(x_train, y_train, w=1.5, c=0.5))
+except Exception as err:
+    print('Error during least squares calculation:', err)
+    
+    
+"""Analytical solution with NumPy, checking funtion and visualise"""
+def least_squares_analytic_solution(x, y):
+    x_mean = np.sum(x)/len(x)
+    y_mean = np.sum(y)/len(y)
+    n = len(x)
+   
+    w = (n*np.sum(x*y) - np.sum(x)*np.sum(x*y))/(n*np.sum(np.square(x)) - np.square(np.sum(x)))
+    
+    c = y_mean - w*x_mean 
+
+    return w, c
+
+try:
+    w_opt, c_opt = least_squares_analytic_solution(x_train, y_train)
+    
+    print('Analytic solution:')
+    print('Analytic w = ', w_opt)
+    print('Analytic c = ', c_opt)
+    
+except Exception as err:
+    print('Error during least squares analytic solution:', err)
+
+    
+def plot_estimated_y_for_input_x(w, c):
+    y = w*x + c
+    fig = plt.figure()
+    ax = plt.axes()
+    ax.plot(x, y)
+
+    pass
+
+try:
+    plot_data(x_train, y_train)
+    plt.title('Analytic Linear Regression (Training Data)')
+    plot_estimated_y_for_input_x(w_opt, c_opt)
+    
+    print('Mean least squares error on TRAINING data = ',
+          least_squares_error(x_train, y_train, w_opt, c_opt) / x_train.shape[0])
+
+    plot_data(x_test, y_test)
+    plt.title('Analytic Linear Regression (Testing Data)')
+    plot_estimated_y_for_input_x(w_opt, c_opt)
+    
+    print('Mean least squares error on TEST data = ',
+          least_squares_error(x_test, y_test, w_opt, c_opt) / x_test.shape[0])
+    
+except Exception as err:
+    print('Error during plotting:', err)
+    
+"""Test against TensorFlow against NumPy function"""
+tf.reset_default_graph()
+
+try:
+    # Constants to hold the training data..
+    t_x_train = tf.constant(x_train, name='x_train')
+    t_y_train = tf.constant(y_train, name='y_train')
+except Exception as err:
+    print('Error defining training data:', err)
+    
+# Initial values for optimisation..
+w_initial_guess = 1.5
+c_initial_guess = 0.5
+
+# Variables to hold w and c
+t_w = tf.Variable(w_initial_guess, 
+                  dtype=tf.float64, 
+                  name='w')
+t_c = tf.Variable(c_initial_guess, 
+                  dtype=tf.float64, 
+                  name='c')
+
+try:
+    t_least_squares_error = calculate_tf_least_squares_error(t_x_train, t_y_train, t_w, t_c)
+    
+    with tf.Session() as session:
+        session.run(tf.global_variables_initializer())
+
+        t_gradient_wrt_w = tf.gradients(t_least_squares_error, t_w)
+        t_gradient_wrt_c = tf.gradients(t_least_squares_error, t_c)
+
+        tf_grad_w = session.run(t_gradient_wrt_w)
+        tf_grad_c = session.run(t_gradient_wrt_c)
+
+        print('Tensorflow gradient wrt w = ', tf_grad_w)
+        print('Tensorflow gradient wrt c = ', tf_grad_c)
+except Exception as err:
+    print('Error using calculate_tf_least_squares_error() to find gradients:', err)
+    
+def calc_gradients_for_least_squares(x, y, w, c):
+ 
+    grad_w = 0
+    grad_c = 0
+    
+    for i in range(len(x)):
+        grad_w += (2 * w * np.square(x[i])) + (2 * x[i] * c) - (2 * x[i] * y[i])
+        
+        grad_c += (2 * w * x[i]) + (2 * c) - (2 * y[i])
+                             
+   
+    return grad_w, grad_c
+
+try:
+    numpy_grad_w, numpy_grad_c = calc_gradients_for_least_squares(x_train, 
+                                                                  y_train, 
+                                                                  w_initial_guess, 
+                                                                  c_initial_guess)
+
+    print('Analytic gradient wrt w = ', numpy_grad_w)
+    print('Analytic gradient wrt c = ', numpy_grad_c)
+
+    # This should pass if they are the same to nummerical precision!
+    assert(np.isclose(tf_grad_w, numpy_grad_w))
+    assert(np.isclose(tf_grad_c, numpy_grad_c))
+except Exception as err:
+    print('Error during calculation with calc_gradients_for_least_squares():', err)
+    
+    
+    
+"""Implement gradient descent optimisation and visualisation"""
+# Keep track of parameter values over iterations..
+w_current = w_initial_guess
+c_current = c_initial_guess
+
+try:
+    # Keep track of the error..
+    E_current = least_squares_error(x_train, y_train, w_current, c_current)
+except Exception as err:
+    print('Error defining training data:', err)
+
+# Keep track of the step size..
+current_step_size = 0.001
+
+num_iterations = 20
+
+converge_threshold = 1e-8
+
+try:
+    for iteration in range(num_iterations):
+
+        def run_iteration(x_train, y_train, w_current, c_current, E_current, 
+                          current_step_size, converge_threshold):
+
+            # Set to True when converged..
+            converged = False
+            
+            grad_w, grad_c = calc_gradients_for_least_squares(x_train, y_train, w_current, c_current)
+    
+            w_new = w_current - grad_w * current_step_size
+            c_new = c_current - grad_c * current_step_size
+
+            E_new = least_squares_error(x_train, y_train, w_current, c_current)
+
+            if E_new > E_current:
+                current_step_size -= 0.01
+                
+            E_diff = E_current - E_new
+
+            if E_diff > 0 and E_diff < 0.000000000001:
+                converged = True
+  
+            # Take the step
+            w_current = w_new
+            c_current = c_new
+            E_current = E_new
+ 
+            return w_current, c_current, E_current, current_step_size, converged
+
+        w_current, c_current, E_current, current_step_size, converged = \
+            run_iteration(x_train, y_train, w_current, c_current, E_current, 
+                          current_step_size, converge_threshold)
+        
+        print('iteration %4d, E = %f, w = %f, c = %f' % 
+              (iteration, E_current, w_current, c_current))
+        
+        if converged:
+            # Break out of iteration loop..
+            print('Converged!')
+            break
+        
+    print('\nAfter gradient descent optimisation:')
+    print('Optimised w = ', w_current)
+    print('Optimised c = ', c_current)
+
+    print('\nAnalytic solution:')
+    print('Analytic w = ', w_opt)
+    print('Analytic c = ', c_opt)
+    
+except Exception as err:
+        print('Error during run_iteration():', err)
