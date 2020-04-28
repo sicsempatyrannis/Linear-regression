@@ -1,0 +1,174 @@
+"""Import the modules required"""
+%matplotlib inline
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from scipy import stats
+
+# Lab-specific support module
+import cm50268_lab1_setup as lab1
+
+N_train = 12
+N_val   = N_train
+N_test  = 250
+
+sigma = 0.1
+s2    = sigma**2
+
+
+"""Generate basis function"""
+(x_train, t_train) = generator.get_data('TRAIN', N_train)
+(x_val, t_val) = generator.get_data('VALIDATION', N_val)
+(x_test, t_test) = generator.get_data('TEST', N_test)
+
+
+M = N_train-1
+r = 1 # Basis radius or width
+centres = np.linspace(generator.xmin, generator.xmax, M)
+basis = lab1.RBFGenerator(centres, width=r, bias=True)
+
+PHI_train = basis.evaluate(x_train)
+PHI_val = basis.evaluate(x_val)
+PHI_test = basis.evaluate(x_test)
+
+
+""" Define a fit PLS function"""
+def fit_pls(PHI, t, lam):
+
+    I = np.identity(len(t))
+    a = np.matmul(np.transpose(PHI), PHI)
+    print()
+    b = lam * I
+    c = np.matmul(np.transpose(PHI), t)    
+    w = np.matmul(np.linalg.inv(a + b), c)
+    
+    return w
+    
+    
+"""Define plotting function and plot fitted data"""
+def plot_regression(y_pred, label='This Graph/That Graph'):
+    plt.figure(num=None, figsize=(8, 6), dpi=180, facecolor='w', edgecolor='k')
+  
+    plt.plot(x_test, t_test, color='b', label='Test')
+    plt.legend()
+    plt.scatter(x_train, t_train, color='k', label='Train')
+    plt.legend()
+    plt.plot(x_test, y_pred, color='g', label='Prediction')
+    plt.legend()
+    plt.xlabel('x')
+    plt.title(label)
+    my_graph = plt.show()
+    
+    return my_graph
+
+lam_1 = np.matmul(PHI_test, fit_pls(PHI_train, t_train, 0))
+lam_2 = np.matmul(PHI_test, fit_pls(PHI_train, t_train, 0.01))
+lam_3 = np.matmul(PHI_test, fit_pls(PHI_train, t_train, 10))
+
+lam_list = [tuple(('λ=0', lam_1)), tuple(('λ=0.01', lam_2)), tuple(('λ=10', lam_3))]
+
+for i in lam_list:
+    plot_regression(i[1], label=str(i[0]))
+
+
+"""Define a function to compute the posterior"""
+def compute_posterior(PHI, t, alph, s2):
+    lam = alph * s2
+    I = np.identity(len(PHI))
+    a = np.matmul(np.transpose(PHI), PHI)
+    b = lam * I
+    c = np.matmul(np.transpose(PHI), t)
+    Mu = np.matmul(np.linalg.inv(a + b), c)
+    SIGMA = s2 * np.linalg.inv(a + b) 
+    
+    return Mu, SIGMA
+
+posterior = compute_posterior(PHI_train, t_train, 1, 0.01)
+
+
+"""Define a function to compute the marginal likelihood with an implementationo of the Woodbury identity."""
+def compute_log_marginal(PHI, t, alph, s2):
+
+    n = PHI.shape[0]
+    m = PHI.shape[1]
+    I_a = np.identity(n)
+    I_c = np.identity(m)
+    a = n * np.log(2 * np.pi)
+    b = s2*I_a + 1/alph * np.matmul(PHI, np.transpose(PHI))
+    log_det = np.linalg.slogdet(b)
+    c = np.matmul(np.transpose(t), np.linalg.inv(b))
+    d = np.matmul(c, t)
+    
+    #lgp = -0.5 * (a + log_det[1] + d)
+
+    # Woodbury identity    
+    inv_A = np.linalg.inv(s2 * I_a)
+    _U = PHI
+    inv_C = np.linalg.inv(1/alph * I_c)
+    _V = PHI.T
+    
+    woodbury = inv_A - (inv_A @ _U @ np.linalg.inv((inv_C + _V @ inv_A @ _U)) @ _V @ inv_A)
+    rna = np.transpose(t) @ woodbury @ t
+    lgp = -0.5 * (a + log_det[1] + rna)
+    
+    return lgp.sum()
+
+compute_log_marginal(PHI_train, t_train, 1, s2)
+
+
+"""Define a function to calculate the Root Mean Square"""
+def error_rms(t, y):
+    """Compute RMS error for a prediction vector"""
+    err = np.sqrt(np.mean((y - t) ** 2))
+    return err
+    
+"""Plot the error of different models"""
+v = np.linspace(-5, 5, 100)
+lam_list = 10**v
+
+rms_train_matrix = np.zeros(len(v))
+rms_val_matrix = np.zeros(len(v))
+rms_test_matrix = np.zeros(len(v))
+
+marg_train_matrix = np.zeros(len(v))
+marg_train_matrix2 = np.zeros(len(v))
+marg_test_matrix = np.zeros(len(v))
+
+for i, lamb in enumerate(lam_list):
+    train_model = fit_pls(PHI_train, t_train, lamb)
+    
+    pred_train = PHI_train @ train_model
+    pred_val = PHI_val @ train_model
+    pred_test = PHI_test @ train_model
+
+    rms_train_matrix[i]  = error_rms(t_train, pred_train)
+    rms_val_matrix[i] = error_rms(t_val, pred_val)
+    rms_test_matrix[i] = error_rms(t_test, pred_test)
+    
+    alph = lamb/s2
+    marg_train_matrix[i] = np.mean(-compute_log_marginal(PHI_train, t_train, alph, s2))
+
+plt.figure(num=None, figsize=(10, 6), dpi=180, facecolor='w', edgecolor='k')
+plt.plot(v, rms_val_matrix, color='r', label='Validation')
+plt.legend()
+plt.plot(v, rms_train_matrix, color='b', label='Train')
+plt.legend()
+plt.plot(v, rms_test_matrix, color='g', label='Test')
+plt.legend()
+plt.ylabel('RMS')
+plt.xlabel('log(λ)')
+marg_ax = plt.gca().twinx()
+marg_ax.plot(v, marg_train_matrix, '--', color='y', label='Train Marginal')
+plt.ylabel('-log(Evidence)')
+plt.legend(loc='lower right')
+plt.show()
+
+
+"""Find an optimal lambda and visualise results"""
+opt_v = v[np.argsort(marg_train_matrix)[0]]
+opt_lam = 10**opt_v
+opt_alpha = opt_lam/s2
+mu = compute_posterior(PHI_train, t_train, opt_alpha, s2)[0]
+post_mean_pred = PHI_test @ mu
+
+plot_regression(post_mean_pred, label='Optimised Lambda')
