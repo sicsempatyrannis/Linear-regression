@@ -165,7 +165,7 @@ try:
 except Exception as err:
     print('Error during plotting:', err)
     
-"""Test against TensorFlow against NumPy function"""
+"""Test TensorFlow against NumPy function"""
 tf.reset_default_graph()
 
 try:
@@ -234,7 +234,7 @@ except Exception as err:
     
     
     
-"""Implement gradient descent optimisation and visualisation"""
+"""Implement gradient descent optimisation and visualisation (TensorFlow)"""
 # Keep track of parameter values over iterations..
 w_current = w_initial_guess
 c_current = c_initial_guess
